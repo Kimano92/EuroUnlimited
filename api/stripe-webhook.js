@@ -1,43 +1,50 @@
+import Stripe from "stripe";
 import { google } from "googleapis";
 
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+
+const auth = new google.auth.GoogleAuth({
+  credentials: JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT),
+  scopes: ["https://www.googleapis.com/auth/spreadsheets"],
+});
+
+const sheets = google.sheets({ version: "v4", auth });
+
 export default async function handler(req, res) {
-  if (req.method !== "POST") {
-    return res.status(405).json({ error: "Method not allowed" });
-  }
+  const sig = req.headers["stripe-signature"];
+
+  let event;
 
   try {
-    const event = req.body;
-
-    if (event.type === "checkout.session.completed") {
-      const session = event.data.object;
-
-      const email = session.customer_details?.email || "no-email";
-      const affiliate = session.client_reference_id || "none";
-      const amount = session.amount_total ? session.amount_total / 100 : 0;
-      const date = new Date().toISOString();
-      const commission = 5;
-
-      const auth = new google.auth.GoogleAuth({
-        credentials: JSON.parse(process.env.GOOGLE_CREDS),
-        scopes: ["https://www.googleapis.com/auth/spreadsheets"],
-      });
-
-      const sheets = google.sheets({ version: "v4", auth });
-
-      await sheets.spreadsheets.values.append({
-        spreadsheetId: process.env.SHEET_ID,
-        range: "Sheet1!A:E",
-        valueInputOption: "RAW",
-        requestBody: {
-          values: [[email, affiliate, amount, date, commission]],
-        },
-      });
-    }
-
-    return res.status(200).json({ received: true });
-
-  } catch (error) {
-    console.error("Webhook error:", error);
-    return res.status(500).json({ error: "Internal server error" });
+    event = stripe.webhooks.constructEvent(
+      req.body,
+      sig,
+      process.env.STRIPE_WEBHOOK_SECRET
+    );
+  } catch (err) {
+    return res.status(400).send(`Webhook Error: ${err.message}`);
   }
+
+  if (event.type === "checkout.session.completed") {
+    const session = event.data.object;
+
+    const email = session.customer_details.email;
+
+    const affiliate = session.metadata?.affiliate || "none";
+
+    const amount = session.amount_total / 100;
+
+    const date = new Date().toISOString();
+
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: process.env.GOOGLE_SHEET_ID,
+      range: "Sheet1!A:D",
+      valueInputOption: "USER_ENTERED",
+      requestBody: {
+        values: [[email, affiliate, amount, date]],
+      },
+    });
+  }
+
+  res.status(200).json({ received: true });
 }
