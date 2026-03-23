@@ -28,9 +28,10 @@ export default async function handler(req, res) {
   if (event.type === "checkout.session.completed") {
     const session = event.data.object;
 
-    const email = session.customer_details.email;
+    const email = session.customer_details?.email || "unknown";
 
-    const affiliate = session.metadata?.affiliate || "none";
+    // ✅ ВИПРАВЛЕНО: читаємо client_reference_id (не metadata)
+    const affiliate = session.client_reference_id || "none";
 
     const amount = session.amount_total / 100;
 
