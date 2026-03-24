@@ -1,13 +1,23 @@
-const { google } = require("googleapis");
+import { google } from "googleapis";
 
 export default async function handler(req, res) {
+  // ✅ CORS (щоб працювало з твоїм доменом)
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET,OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "*");
+
+  if (req.method === "OPTIONS") {
+    return res.status(200).end();
+  }
+
   try {
-    const ref = req.query.ref;
+    const { ref } = req.query;
 
     if (!ref) {
       return res.status(400).json({ error: "Missing ref" });
     }
 
+    // 🔑 Підключення до Google Sheets
     const auth = new google.auth.JWT(
       process.env.GOOGLE_CLIENT_EMAIL,
       null,
@@ -19,48 +29,34 @@ export default async function handler(req, res) {
 
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: process.env.GOOGLE_SHEET_ID,
-      range: "Sheet1!A:D",
+      range: "Sheet1!A2:D",
     });
 
     const rows = response.data.values || [];
 
-    let total = 0;
-    let sales = 0;
-    let monthly = 0;
-    const history = [];
+    // 📊 Фільтр по рефералу
+    const filtered = rows.filter((row) => row[1] === ref);
+
+    const history = filtered.map((row) => ({
+      email: row[0],
+      affiliate: row[1],
+      amount: Number(row[2] || 0),
+      date: row[3],
+    }));
+
+    const total = history.reduce((sum, r) => sum + r.amount, 0);
+    const sales = history.length;
 
     const now = new Date();
-
-    // пропускаємо заголовок
-    for (let i = 1; i < rows.length; i++) {
-      const row = rows[i];
-
-      const email = row[0];
-      const rowRef = row[1];
-      const amount = Number(row[2]) || 0;
-      const date = row[3];
-
-      if (rowRef === ref) {
-        sales++;
-        total += amount;
-
-        history.push({
-          email,
-          amount,
-          date,
-        });
-
-        if (date) {
-          const d = new Date(date);
-          if (
-            d.getMonth() === now.getMonth() &&
-            d.getFullYear() === now.getFullYear()
-          ) {
-            monthly += amount;
-          }
-        }
-      }
-    }
+    const monthly = history
+      .filter((r) => {
+        const d = new Date(r.date);
+        return (
+          d.getMonth() === now.getMonth() &&
+          d.getFullYear() === now.getFullYear()
+        );
+      })
+      .reduce((sum, r) => sum + r.amount, 0);
 
     return res.status(200).json({
       total,
@@ -70,10 +66,6 @@ export default async function handler(req, res) {
     });
   } catch (error) {
     console.error("API ERROR:", error);
-
-    return res.status(500).json({
-      error: "Server error",
-      details: error.message,
-    });
+    return res.status(500).json({ error: "Server error" });
   }
 }
