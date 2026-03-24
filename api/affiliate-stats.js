@@ -2,8 +2,17 @@ import { google } from "googleapis";
 
 export default async function handler(req, res) {
   try {
+    const ref = req.query.ref;
+
+    if (!ref) {
+      return res.status(400).json({ error: "No ref provided" });
+    }
+
     const auth = new google.auth.GoogleAuth({
-      credentials: JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_KEY),
+      credentials: {
+        client_email: process.env.GOOGLE_CLIENT_EMAIL,
+        private_key: process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, "\n"),
+      },
       scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"],
     });
 
@@ -16,22 +25,52 @@ export default async function handler(req, res) {
 
     const rows = response.data.values || [];
 
-    // Формат:
-    // A: ref
-    // B: email
-    // C: amount
-    // D: date
+    // якщо таблиця пуста
+    if (rows.length === 0) {
+      return res.status(200).json({
+        total: 0,
+        sales: 0,
+        monthly: 0,
+        history: [],
+      });
+    }
 
-    const data = rows.slice(1).map((row) => ({
-      ref: row[0] || "",
-      email: row[1] || "",
-      amount: row[2] || "0",
-      date: row[3] || new Date().toISOString(),
-    }));
+    let total = 0;
+    let sales = 0;
+    let monthly = 0;
+    const history = [];
 
-    res.status(200).json(data);
-  } catch (err) {
-    console.error("❌ API ERROR:", err);
-    res.status(500).json({ error: "Server error" });
-  }
-}
+    const now = new Date();
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
+
+    // пропускаємо header (1 рядок)
+    for (let i = 1; i < rows.length; i++) {
+      const row = rows[i];
+
+      const rowRef = row[0];
+      const amount = Number(row[1]) || 0;
+      const date = new Date(row[2]);
+
+      if (rowRef === ref) {
+        total += amount;
+        sales += 1;
+
+        history.push({
+          amount,
+          date: row[2],
+        });
+
+        if (
+          date.getMonth() === currentMonth &&
+          date.getFullYear() === currentYear
+        ) {
+          monthly += amount;
+        }
+      }
+    }
+
+    return res.status(200).json({
+      total,
+      sales,
+      monthly
