@@ -36,7 +36,7 @@ export default async function handler(req, res) {
       const row = rows[i];
 
       const email = row[0];
-      const rowRef = row[1]; // ← Affiliate
+      const rowRef = row[1];
       const amount = Number(row[2]) || 0;
       const date = row[3];
 
