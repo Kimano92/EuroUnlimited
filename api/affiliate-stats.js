@@ -1,4 +1,4 @@
-import { google } from "googleapis";
+const { google } = require("googleapis");
 
 export default async function handler(req, res) {
   try {
@@ -20,20 +20,10 @@ export default async function handler(req, res) {
 
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: process.env.GOOGLE_SHEET_ID,
-      range: "Sheet1!A:D",
+      range: "Sheet1!A:C",
     });
 
     const rows = response.data.values || [];
-
-    // якщо таблиця пуста
-    if (rows.length === 0) {
-      return res.status(200).json({
-        total: 0,
-        sales: 0,
-        monthly: 0,
-        history: [],
-      });
-    }
 
     let total = 0;
     let sales = 0;
@@ -41,31 +31,23 @@ export default async function handler(req, res) {
     const history = [];
 
     const now = new Date();
-    const currentMonth = now.getMonth();
-    const currentYear = now.getFullYear();
 
-    // пропускаємо header (1 рядок)
     for (let i = 1; i < rows.length; i++) {
-      const row = rows[i];
-
-      const rowRef = row[0];
-      const amount = Number(row[1]) || 0;
-      const date = new Date(row[2]);
+      const [rowRef, amount, dateStr] = rows[i];
+      const amountNum = Number(amount) || 0;
+      const date = new Date(dateStr);
 
       if (rowRef === ref) {
-        total += amount;
-        sales += 1;
+        total += amountNum;
+        sales++;
 
-        history.push({
-          amount,
-          date: row[2],
-        });
+        history.push({ amount: amountNum, date: dateStr });
 
         if (
-          date.getMonth() === currentMonth &&
-          date.getFullYear() === currentYear
+          date.getMonth() === now.getMonth() &&
+          date.getFullYear() === now.getFullYear()
         ) {
-          monthly += amount;
+          monthly += amountNum;
         }
       }
     }
@@ -73,4 +55,12 @@ export default async function handler(req, res) {
     return res.status(200).json({
       total,
       sales,
-      monthly
+      monthly,
+      history,
+    });
+
+  } catch (error) {
+    console.error("API ERROR:", error);
+    return res.status(500).json({ error: error.message });
+  }
+}
